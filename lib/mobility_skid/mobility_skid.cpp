@@ -23,10 +23,18 @@ static const char *TAG = "skid";
 
 static uint8_t publisher_buf[PUBLISHER_BUF_SIZE]; // pre-allocated buffer for serialization
 
+enum control_topic_t
+{
+  CONTROL_TOPIC_UNDEFINED = 0,
+  CONTROL_TOPIC_CMD_VEL,
+  CONTROL_TOPIC_JOINT_COMMANDS
+};
+
 static Sabertooth sabertooth;
 
 static unsigned long set_control_time_ms = 0;
 static unsigned long control_cb_time_ms = 0;
+static control_topic_t control_topic = CONTROL_TOPIC_UNDEFINED;
 
 static ESP32Encoder encoder_rr_lft;
 static ESP32Encoder encoder_fr_lft;
@@ -67,6 +75,16 @@ picoros_subscriber_t subscription_cmd_vel = {
         .rihs_hash = ROSTYPE_HASH(ros_TwistStamped),
     },
     .user_callback = cmd_vel_cb,
+};
+
+static void joint_commands_cb(uint8_t *rx_data, size_t data_len);
+picoros_subscriber_t subscription_joint_commands = {
+    .topic = {
+        .name = (char *)"joint_commands",
+        .type = ROSTYPE_NAME(ros_JointState),
+        .rihs_hash = ROSTYPE_HASH(ros_JointState),
+    },
+    .user_callback = joint_commands_cb,
 };
 
 // static float current_linear;
@@ -159,6 +177,16 @@ static void compute_movement(float time_step)
 
 static void cmd_vel_cb(uint8_t *rx_data, size_t data_len)
 {
+  if (control_topic == CONTROL_TOPIC_UNDEFINED)
+  {
+    control_topic = CONTROL_TOPIC_CMD_VEL;
+  }
+  else if (control_topic != CONTROL_TOPIC_CMD_VEL)
+  {
+    ESP_LOGW(TAG, "cmd_vel message received but joint_commands is already being used");
+    return;
+  }
+
   set_control_time_ms = pdTICKS_TO_MS(xTaskGetTickCount());
 
   ros_TwistStamped msg_cmd_vel = {};
@@ -173,6 +201,57 @@ static void cmd_vel_cb(uint8_t *rx_data, size_t data_len)
   else
   {
     ESP_LOGE(TAG, "cmd_vel message deserialization error");
+  }
+}
+
+static void joint_commands_cb(uint8_t *rx_data, size_t data_len)
+{
+  if (control_topic == CONTROL_TOPIC_UNDEFINED)
+  {
+    control_topic = CONTROL_TOPIC_JOINT_COMMANDS;
+  }
+  else if (control_topic != CONTROL_TOPIC_JOINT_COMMANDS)
+  {
+    ESP_LOGW(TAG, "joint_commands message received but cmd_vel is already being used");
+    return;
+  }
+
+  set_control_time_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+
+  ros_JointState msg_joint_command = {};
+  if (ps_deserialize(rx_data, &msg_joint_command, data_len))
+  {
+    // TODO verify msg_joint_command.header.stamp and msg_joint_command.name[]
+    // (must match from joint_names)
+
+    if (msg_joint_command.velocity.n_elements == 2)
+    {
+      float power_lft = 126 * msg_joint_command.velocity.data[0] / MAX_WHEEL_ANGULAR;
+      float power_rgt = 126 * msg_joint_command.velocity.data[1] / MAX_WHEEL_ANGULAR;
+
+      // clamp before narrowing: an out-of-range joint velocity would otherwise
+      // cause an undefined float->int8_t cast below
+      if (power_lft > 126.0f)
+        power_lft = 126.0f;
+      else if (power_lft < -126.0f)
+        power_lft = -126.0f;
+
+      if (power_rgt > 126.0f)
+        power_rgt = 126.0f;
+      else if (power_rgt < -126.0f)
+        power_rgt = -126.0f;
+
+      sabertooth.motor(1, MOTOR_OUT_lft_MULT * (int8_t)power_lft);
+      sabertooth.motor(2, MOTOR_OUT_rgt_MULT * (int8_t)power_rgt);
+    }
+    else
+    {
+      ESP_LOGE(TAG, "joint_commands message wrong content");
+    }
+  }
+  else
+  {
+    ESP_LOGE(TAG, "joint_commands message deserialization error");
   }
 }
 
@@ -220,8 +299,9 @@ static void control_task(void *)
     {
       // sabertooth watchdog must have stopped the motor, set as stopped and skip
       MobilitySkid::stop();
+      control_topic = CONTROL_TOPIC_UNDEFINED;
     }
-    else
+    else if (control_topic == CONTROL_TOPIC_CMD_VEL)
     {
       // reverse kinematics
       float v_diff = LR_WHEELS_OFFSET * target_angular;
@@ -300,6 +380,9 @@ bool MobilitySkid::setup()
 
   ESP_LOGI(TAG, "Declaring subscriber on [%s]", subscription_cmd_vel.topic.name);
   picoros_subscriber_declare(&PicoRosso::node, &subscription_cmd_vel);
+
+  ESP_LOGI(TAG, "Declaring subscriber on [%s]", subscription_joint_commands.topic.name);
+  picoros_subscriber_declare(&PicoRosso::node, &subscription_joint_commands);
 
   control_cb_time_ms = pdTICKS_TO_MS(xTaskGetTickCount());
   // PicoRosso::timer.every(PERIOD_CONTROL_MS, &control_cb);
