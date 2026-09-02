@@ -280,7 +280,7 @@ bool MobilitySkid::setup()
   encoder_fr_lft.attachFullQuad(ENCODER_fr_lft_PIN_A, ENCODER_fr_lft_PIN_B);
   encoder_fr_rgt.attachFullQuad(ENCODER_fr_rgt_PIN_A, ENCODER_fr_rgt_PIN_B);
   encoder_rr_rgt.attachFullQuad(ENCODER_rr_rgt_PIN_A, ENCODER_rr_rgt_PIN_B);
-#elif
+#else
   encoder_rr_lft.attachSingleEdge(ENCODER_rr_lft_PIN_A, ENCODER_rr_lft_PIN_B);
   encoder_fr_lft.attachSingleEdge(ENCODER_fr_lft_PIN_A, ENCODER_fr_lft_PIN_B);
   encoder_fr_rgt.attachSingleEdge(ENCODER_fr_rgt_PIN_A, ENCODER_fr_rgt_PIN_B);
