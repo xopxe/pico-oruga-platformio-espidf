@@ -169,8 +169,8 @@ static void compute_movement(float time_step)
   current_v_lft = WHEEL_RADIUS * (wheel_angular_rr_lft + wheel_angular_fr_lft) / 2; // FIXME
   current_v_rgt = WHEEL_RADIUS * (wheel_angular_rr_rgt + wheel_angular_fr_rgt) / 2;
 
-  float current_linear = (current_v_lft + current_v_rgt) / 2;                          // m/s
-  float current_angular = atanf((current_v_rgt - current_v_lft) / LR_WHEELS_DISTANCE); // rad/s
+  float current_linear = (current_v_lft + current_v_rgt) / 2;                   // m/s
+  float current_angular = (current_v_rgt - current_v_lft) / LR_WHEELS_DISTANCE; // rad/s
 
   odom.update_pos(current_linear, 0.0f, current_angular, time_step);
 }
