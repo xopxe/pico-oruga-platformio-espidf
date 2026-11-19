@@ -57,6 +57,17 @@ ImuMPU6050 imu;
 #include "mobility_skid.h"
 MobilitySkid mobility;
 
+#include "infrastructure.h"
+#define EMERGENCY_STOP_BUTTON_PIN GPIO_NUM_4
+#define BATTERY_VOLTAGE_READER_PIN GPIO_NUM_32
+// Battery voltage / ADC pin voltage of the hand-made divider (not in docs/oruga_board.kicad_sch):
+// R1 = 47k from battery to the pin, R2 = 10k from the pin to GND -> (47k + 10k) / 10k
+#define BATTERY_VOLTAGE_DIVIDER_RATIO 5.7f
+
+static void on_emergency_stop(bool stopped) {
+    mobility.set_motor_enable(!stopped);
+}
+
 #include "ticker.h"
 Ticker ticker;
 
@@ -124,6 +135,8 @@ void app_main()
     ticker.setup("tick");
     env.setup(i2c0_bus_hdl);
     imu.setup(i2c0_bus_hdl);
+    Infrastructure::setup(EMERGENCY_STOP_BUTTON_PIN, on_emergency_stop, BATTERY_VOLTAGE_READER_PIN,
+                          BATTERY_VOLTAGE_DIVIDER_RATIO);
     mobility.setup();
 
     // Publisher task
